@@ -23,7 +23,30 @@ app.get("/", (req, res) => {
 async function run() {
   try {
     await client.connect();
-
+    const artsDB = client.db("artsDB");
+    const artsCollection = artsDB.collection("arts");
+    app.post("/artWorks", async (req, res) => {
+      const data = req.body;
+      const result = await artsCollection.insertOne(data);
+      res.send(result);
+    });
+    app.get("/artWorks", async (req, res) => {
+      const result = await artsCollection
+        .find({ visibility: "public" })
+        .toArray();
+      res.send(result);
+    });
+    app.get("/search", async (req, res) => {
+      const search_text = req.query.search;
+      const query = {
+        $or: [
+          { title: { $regex: search_text, $options: "i" } },
+          { artistName: { $regex: search_text, $options: "i" } },
+        ],
+      };
+      const result = await artsCollection.find(query).toArray();
+      res.send(result);
+    });
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
