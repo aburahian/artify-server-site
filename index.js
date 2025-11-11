@@ -26,6 +26,7 @@ async function run() {
     const artsDB = client.db("artsDB");
     const artsCollection = artsDB.collection("arts");
     const usersCollection = artsDB.collection("users");
+    const favoritesCollection = artsDB.collection("favorites");
     app.post("/artWorks", async (req, res) => {
       const data = req.body;
       const result = await artsCollection.insertOne(data);
@@ -84,34 +85,51 @@ async function run() {
       res.send(result);
     });
     app.patch("/artworks/:id/like", async (req, res) => {
+      const { userEmail } = req.body;
       const { id } = req.params;
-      const { email } = req.body;
-
-      try {
-        const artwork = await artsCollection.findOne({ _id: new ObjectId(id) });
-        if (!artwork)
-          return res.status(404).json({ message: "Artwork not found" });
-
-        let liked;
-        if (artwork.likes?.includes(email)) {
-          await artsCollection.updateOne(
-            { _id: new ObjectId(id) },
-            { $pull: { likes: email } }
-          );
-          liked = false;
-        } else {
-          await artsCollection.updateOne(
-            { _id: new ObjectId(id) },
-            { $push: { likes: email } }
-          );
-          liked = true;
-        }
-
-        res.json({ liked });
-      } catch (err) {
-        res.status(500).json({ message: "Server error", error: err.message });
-      }
+      if (!ObjectId.isValid(id))
+        return res.status(400).send({ error: "Invalid ID" });
+      const objectId = new ObjectId(id);
+      const art = await artsCollection.findOne({ _id: objectId });
+      if (!art) return res.status(404).send({ error: "Artwork not found" });
+      const likedBy = Array.isArray(art.likedBy) ? art.likedBy : [];
+      const alreadyLiked = likedBy.includes(userEmail);
+      const update = alreadyLiked
+        ? { $pull: { likedBy: userEmail } }
+        : { $push: { likedBy: userEmail } };
+      await artsCollection.updateOne({ _id: objectId }, update);
+      const newLikeCount = alreadyLiked
+        ? likedBy.length - 1
+        : likedBy.length + 1;
+      res.send({
+        success: true,
+        liked: !alreadyLiked,
+        likeCount: newLikeCount,
+      });
     });
+    app.patch("/artworks/:id/favorite", async (req, res) => {
+      const { userEmail } = req.body;
+      const id = req.params.id;
+      const art = await artsCollection.findOne({ _id: new ObjectId(id) });
+      const favorites = Array.isArray(art.favorites) ? art.favorites : [];
+      const alreadyFav = favorites.includes(userEmail);
+      const update = alreadyFav
+        ? { $pull: { favorites: userEmail } }
+        : { $push: { favorites: userEmail } };
+      const result = await artsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        update
+      );
+      res.send({ success: true, favorited: !alreadyFav });
+    });
+    app.get("/favorites/:userEmail", async (req, res) => {
+      const { userEmail } = req.params;
+      const favorites = await artsCollection
+        .find({ favorites: userEmail })
+        .toArray();
+      res.send(favorites);
+    });
+    
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
