@@ -47,6 +47,16 @@ async function run() {
       const result = await artsCollection.find(query).toArray();
       res.send(result);
     });
+    app.get("/latest-art", async (req, res) => {
+      const result = await artsCollection
+        .find()
+        .sort({
+          created_at: -1,
+        })
+        .limit(6)
+        .toArray();
+      res.send(result);
+    });
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
