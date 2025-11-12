@@ -26,7 +26,7 @@ async function run() {
     const artsDB = client.db("artsDB");
     const artsCollection = artsDB.collection("arts");
     const usersCollection = artsDB.collection("users");
-    const favoritesCollection = artsDB.collection("favorites");
+
     app.post("/artWorks", async (req, res) => {
       const data = req.body;
       const result = await artsCollection.insertOne(data);
@@ -39,9 +39,12 @@ async function run() {
     });
 
     app.get("/artWorks", async (req, res) => {
-      const result = await artsCollection
-        .find({ visibility: "public" })
-        .toArray();
+      const { category } = req.query;
+      const query = { visibility: "public" };
+
+      if (category) query.category = category;
+
+      const result = await artsCollection.find(query).toArray();
       res.send(result);
     });
     app.get("/search", async (req, res) => {
@@ -78,12 +81,27 @@ async function run() {
       res.send(artist);
     });
 
-    app.get("/artworks", async (req, res) => {
-      const { artist } = req.query;
-      const query = artist ? { artistEmail: artist } : {};
-      const result = await artsCollection.find(query).toArray();
-      res.send(result);
+    app.put("/artworks/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedArt = req.body;
+      if (!ObjectId.isValid(id))
+        return res.status(400).send({ error: "Invalid artwork ID" });
+      const allowedFields = ["title", "medium", "image", "description"];
+      const updatePayload = {};
+      allowedFields.forEach((field) => {
+        if (updatedArt[field] !== undefined)
+          updatePayload[field] = updatedArt[field];
+      });
+      const result = await artsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updatePayload }
+      );
+      if (result.matchedCount === 0) {
+        return res.status(404).send({ error: "Artwork not found" });
+      }
+      res.send({ success: true, message: "Artwork updated successfully" });
     });
+
     app.patch("/artworks/:id/like", async (req, res) => {
       const { userEmail } = req.body;
       const { id } = req.params;
@@ -129,7 +147,11 @@ async function run() {
         .toArray();
       res.send(favorites);
     });
-    
+    app.delete("/artworks/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await artsCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
