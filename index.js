@@ -3,10 +3,21 @@ const cors = require("cors");
 const app = express();
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
 const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+const decoded = Buffer.from(
+  process.env.FIREBASE_ACCOUNT_KEY,
+  "base64"
+).toString("utf8");
+const serviceAccount = JSON.parse(decoded);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 const uri = `mongodb+srv://${process.env.SECRET_NAME}:${process.env.SECRET_KEY}@cluster0.ql1be0w.mongodb.net/?appName=Cluster0`;
 
@@ -17,6 +28,20 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+const verifyToken = async (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+  const token = authorization.split(" ")[1];
+  try {
+    const decode = await admin.auth().verifyIdToken(token);
+    req.token_email = decode.email;
+    next();
+  } catch (error) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+};
 app.get("/", (req, res) => {
   res.send("Server is running.");
 });
@@ -152,7 +177,7 @@ async function run() {
       const result = await artsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
