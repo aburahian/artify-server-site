@@ -93,6 +93,16 @@ async function run() {
         .toArray();
       res.send(result);
     });
+
+    app.get("/my-artworks", verifyToken, async (req, res) => {
+      const artistEmail = req.query.artistEmail;
+      if (artistEmail !== req.token_email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      const result = await artsCollection.find({ artistEmail }).toArray();
+      res.send(result);
+    });
+
     app.get("/artworks/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const result = await artsCollection.findOne({
