@@ -47,7 +47,7 @@ app.get("/", (req, res) => {
 });
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const artsDB = client.db("artsDB");
     const artsCollection = artsDB.collection("arts");
     const usersCollection = artsDB.collection("users");
@@ -93,7 +93,7 @@ async function run() {
         .toArray();
       res.send(result);
     });
-    app.get("/artworks/:id", async (req, res) => {
+    app.get("/artworks/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const result = await artsCollection.findOne({
         _id: new ObjectId(id),
@@ -101,12 +101,12 @@ async function run() {
 
       res.send(result);
     });
-    app.get("/artists/:email", async (req, res) => {
+    app.get("/artists/:email", verifyToken, async (req, res) => {
       const artist = await usersCollection.findOne({ email: req.params.email });
       res.send(artist);
     });
 
-    app.put("/artworks/:id", async (req, res) => {
+    app.put("/artworks/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const updatedArt = req.body;
       if (!ObjectId.isValid(id))
@@ -127,7 +127,7 @@ async function run() {
       res.send({ success: true, message: "Artwork updated successfully" });
     });
 
-    app.patch("/artworks/:id/like", async (req, res) => {
+    app.patch("/artworks/:id/like", verifyToken, async (req, res) => {
       const { userEmail } = req.body;
       const { id } = req.params;
       if (!ObjectId.isValid(id))
@@ -150,7 +150,7 @@ async function run() {
         likeCount: newLikeCount,
       });
     });
-    app.patch("/artworks/:id/favorite", async (req, res) => {
+    app.patch("/artworks/:id/favorite", verifyToken, async (req, res) => {
       const { userEmail } = req.body;
       const id = req.params.id;
       const art = await artsCollection.findOne({ _id: new ObjectId(id) });
@@ -172,7 +172,7 @@ async function run() {
         .toArray();
       res.send(favorites);
     });
-    app.delete("/artworks/:id", async (req, res) => {
+    app.delete("/artworks/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const result = await artsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);

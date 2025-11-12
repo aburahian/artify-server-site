@@ -1,3 +1,4 @@
 node_modules
 .env
 artify-service-key.json
+.vercel
