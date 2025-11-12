@@ -87,7 +87,7 @@ async function run() {
       const result = await artsCollection
         .find()
         .sort({
-          created_at: -1,
+          createdAt: -1,
         })
         .limit(6)
         .toArray();
