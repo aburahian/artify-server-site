@@ -63,11 +63,12 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/artWorks", async (req, res) => {
-      const { category } = req.query;
+    app.get("/artworks", async (req, res) => {
+      const { category, artist } = req.query;
       const query = { visibility: "public" };
 
       if (category) query.category = category;
+      if (artist) query.artistEmail = artist;
 
       const result = await artsCollection.find(query).toArray();
       res.send(result);
