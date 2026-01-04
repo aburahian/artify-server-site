@@ -12,7 +12,8 @@ app.use(
       "http://localhost:5173",
       "http://localhost:5174",
       "https://artify-client-site.web.app",
-      "https://artify-client-site.firebaseapp.com"
+      "https://artify-client-site.firebaseapp.com",
+      "https://cheerful-cat-006046.netlify.app"
     ],
     credentials: true,
     optionsSuccessStatus: 200,
