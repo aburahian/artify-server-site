@@ -6,7 +6,18 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
 const port = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "https://artify-client-site.web.app",
+      "https://artify-client-site.firebaseapp.com"
+    ],
+    credentials: true,
+    optionsSuccessStatus: 200,
+  })
+);
 app.use(express.json());
 
 const decoded = Buffer.from(
@@ -52,41 +63,77 @@ async function run() {
     const artsCollection = artsDB.collection("arts");
     const usersCollection = artsDB.collection("users");
 
-    app.post("/artWorks", async (req, res) => {
+    app.post("/artworks", verifyToken, async (req, res) => {
       const data = req.body;
+      if (data.artistEmail !== req.token_email) {
+        return res.status(403).send({ message: "Forbidden: Cannot post for another account" });
+      }
       const result = await artsCollection.insertOne(data);
       res.send(result);
     });
+
     app.post("/users", async (req, res) => {
       const data = req.body;
+      // Check if user already exists
+      const query = { email: data.email };
+      const existingUser = await usersCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ message: "user already exists", insertedId: null });
+      }
       const result = await usersCollection.insertOne(data);
       res.send(result);
     });
 
     app.get("/artworks", async (req, res) => {
-      const { category, artist } = req.query;
+      const { category, artist, search, sortField, sortOrder, limit = 8, page = 1 } = req.query;
       const query = { visibility: "public" };
 
       if (category) query.category = category;
       if (artist) query.artistEmail = artist;
+      if (search) {
+        query.$or = [
+          { title: { $regex: search, $options: "i" } },
+          { artistName: { $regex: search, $options: "i" } },
+        ];
+      }
 
-      const result = await artsCollection.find(query).toArray();
-      res.send(result);
-    });
-    app.get("/search", async (req, res) => {
-      const search_text = req.query.search;
-      const query = {
-        $or: [
-          { title: { $regex: search_text, $options: "i" } },
-          { artistName: { $regex: search_text, $options: "i" } },
-        ],
-      };
-      const result = await artsCollection.find(query).toArray();
-      res.send(result);
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      const sortOptions = {};
+
+      // Handle predefined sort strings or direct fields
+      if (sortField === 'priceLow') {
+        sortOptions.price = 1;
+      } else if (sortField === 'priceHigh') {
+        sortOptions.price = -1;
+      } else if (sortField === 'oldest') {
+        sortOptions.createdAt = 1;
+      } else if (sortField) {
+        sortOptions[sortField] = sortOrder === 'desc' ? -1 : 1;
+      } else {
+        sortOptions.createdAt = -1; // Newest First - default
+      }
+
+      const totalItems = await artsCollection.countDocuments(query);
+      const result = await artsCollection
+        .find(query)
+        .sort(sortOptions)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .toArray();
+
+      res.send({
+        data: result,
+        meta: {
+          total: totalItems,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(totalItems / parseInt(limit))
+        }
+      });
     });
     app.get("/latest-art", async (req, res) => {
       const result = await artsCollection
-        .find()
+        .find({ visibility: "public" })
         .sort({
           createdAt: -1,
         })
@@ -96,12 +143,31 @@ async function run() {
     });
 
     app.get("/my-artworks", verifyToken, async (req, res) => {
-      const artistEmail = req.query.artistEmail;
+      const { artistEmail, limit = 10, page = 1 } = req.query;
       if (artistEmail !== req.token_email) {
         return res.status(403).send({ message: "Forbidden access" });
       }
-      const result = await artsCollection.find({ artistEmail }).toArray();
-      res.send(result);
+
+      const query = { artistEmail };
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+
+      const totalItems = await artsCollection.countDocuments(query);
+      const result = await artsCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .toArray();
+
+      res.send({
+        data: result,
+        meta: {
+          total: totalItems,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(totalItems / parseInt(limit))
+        }
+      });
     });
 
     app.get("/artworks/:id", verifyToken, async (req, res) => {
@@ -122,19 +188,23 @@ async function run() {
       const updatedArt = req.body;
       if (!ObjectId.isValid(id))
         return res.status(400).send({ error: "Invalid artwork ID" });
-      const allowedFields = ["title", "medium", "image", "description"];
+
+      const filter = { _id: new ObjectId(id) };
+      const art = await artsCollection.findOne(filter);
+
+      if (!art) return res.status(404).send({ error: "Artwork not found" });
+      if (art.artistEmail !== req.token_email) {
+        return res.status(403).send({ error: "Forbidden: Not your artwork" });
+      }
+
+      const allowedFields = ["title", "medium", "image", "description", "category", "price", "dimensions", "visibility"];
       const updatePayload = {};
       allowedFields.forEach((field) => {
         if (updatedArt[field] !== undefined)
           updatePayload[field] = updatedArt[field];
       });
-      const result = await artsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: updatePayload }
-      );
-      if (result.matchedCount === 0) {
-        return res.status(404).send({ error: "Artwork not found" });
-      }
+
+      const result = await artsCollection.updateOne(filter, { $set: updatePayload });
       res.send({ success: true, message: "Artwork updated successfully" });
     });
 
@@ -185,9 +255,45 @@ async function run() {
     });
     app.delete("/artworks/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
-      const result = await artsCollection.deleteOne({ _id: new ObjectId(id) });
+      if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid ID" });
+
+      const filter = { _id: new ObjectId(id) };
+      const art = await artsCollection.findOne(filter);
+
+      if (!art) return res.status(404).send({ error: "Artwork not found" });
+      if (art.artistEmail !== req.token_email) {
+        return res.status(403).send({ error: "Forbidden: Not your artwork" });
+      }
+
+      const result = await artsCollection.deleteOne(filter);
       res.send(result);
     });
+    app.get("/admin/stats", verifyToken, async (req, res) => {
+      // Basic admin check - in real app would use a role field in DB
+      if (req.token_email !== "admin@artify.com") {
+        return res.status(403).send({ message: "Access denied: Admin only" });
+      }
+
+      const totalArts = await artsCollection.countDocuments();
+      const totalUsers = await usersCollection.countDocuments();
+
+      const likesStats = await artsCollection.aggregate([
+        { $project: { numLikes: { $size: { $ifNull: ["$likedBy", []] } } } },
+        { $group: { _id: null, totalLikes: { $sum: "$numLikes" } } }
+      ]).toArray();
+
+      const categoryStats = await artsCollection.aggregate([
+        { $group: { _id: "$category", count: { $sum: 1 } } }
+      ]).toArray();
+
+      res.send({
+        totalArts,
+        totalUsers,
+        totalLikes: likesStats[0]?.totalLikes || 0,
+        categories: categoryStats
+      });
+    });
+
     // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
